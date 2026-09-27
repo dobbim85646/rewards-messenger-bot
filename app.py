@@ -4,8 +4,8 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-VERIFY_TOKEN = "EAAXUv4EpWfMBSt7pIiugi3knIgJDu6fmIyzEslJPU0B6rLu76dul4UK30a0g3dGzyZBkDxfXz7LjcKaMljpvKayZAuZBnNJqV5CMaceZBVtulCIq77zkTOPgyQxsA23OZC3uZCoXqPrSxm7yD4vedtXZB18LLLDA9eFFibyq2ZBvBigSFs9SunBKH6gjMSiszq9l8pnlAwZDZD"
-PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
+VERIFY_TOKEN = "CHANGE_THIS_TOKEN"
+PAGE_ACCESS_TOKEN = os.environ.get("EAAXUv4EpWfMBSt7pIiugi3knIgJDu6fmIyzEslJPU0B6rLu76dul4UK30a0g3dGzyZBkDxfXz7LjcKaMljpvKayZAuZBnNJqV5CMaceZBVtulCIq77zkTOPgyQxsA23OZC3uZCoXqPrSxm7yD4vedtXZB18LLLDA9eFFibyq2ZBvBigSFs9SunBKH6gjMSiszq9l8pnlAwZDZD")
 
 
 @app.route("/webhook", methods=["GET"])
