@@ -4,9 +4,32 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-VERIFY_TOKEN = "CHANGE_THIS_TOKEN"
-PAGE_ACCESS_TOKEN = os.environ.get("EAAXUv4EpWfMBSt7pIiugi3knIgJDu6fmIyzEslJPU0B6rLu76dul4UK30a0g3dGzyZBkDxfXz7LjcKaMljpvKayZAuZBnNJqV5CMaceZBVtulCIq77zkTOPgyQxsA23OZC3uZCoXqPrSxm7yD4vedtXZB18LLLDA9eFFibyq2ZBvBigSFs9SunBKH6gjMSiszq9l8pnlAwZDZD")
+# =========================
+# الإعدادات
+# =========================
 
+VERIFY_TOKEN = os.environ.get(
+    "VERIFY_TOKEN",
+    "EAAXUv4EpWfMBSrdQ75waCQwaBCZAtZAI7tKXviLFS6NZCuMezOUBy5c1E7Ijn3eccwXpC3yGiVhOyMICQxOW3sIOzvf7z0FnhIkpAbY8C23xmbfWZCbvXdLA26qtxga3rZBgypyDu67kpBAm5W0XEeFIFHijxxeXEVm8knBqPj3GUbZC0Vd8zQJvTktASNUb8rhlTSHgZDZD"
+)
+
+PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
+
+GRAPH_API_VERSION = "v24.0"
+MESSAGES_URL = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/messages"
+
+
+# =========================
+# التحقق من وجود الإعدادات
+# =========================
+
+if not PAGE_ACCESS_TOKEN:
+    print("WARNING: PAGE_ACCESS_TOKEN غير موجود في Environment Variables")
+
+
+# =========================
+# Webhook Verification
+# =========================
 
 @app.route("/webhook", methods=["GET"])
 def verify():
@@ -14,44 +37,116 @@ def verify():
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
 
+    print("Webhook verification request received")
+
     if mode == "subscribe" and token == VERIFY_TOKEN:
+        print("Webhook verification successful")
         return challenge, 200
 
+    print("Webhook verification failed")
     return "Verification failed", 403
 
 
+# =========================
+# استقبال رسائل Messenger
+# =========================
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json()
+    data = request.get_json(silent=True)
+
+    if not data:
+        print("Received empty or invalid JSON")
+        return "EVENT_RECEIVED", 200
 
     print("Received:", data)
 
-    if data.get("object") == "page":
-        for entry in data.get("entry", []):
-            for event in entry.get("messaging", []):
+    # نتأكد أن الحدث خاص بصفحة Facebook
+    if data.get("object") != "page":
+        return "EVENT_RECEIVED", 200
 
-                sender = event.get("sender", {})
-                sender_id = sender.get("id")
+    for entry in data.get("entry", []):
 
-                message = event.get("message", {})
-                text = message.get("text", "")
+        for event in entry.get("messaging", []):
 
-                if sender_id and text:
-                    send_message(
-                        sender_id,
-                        "👋 مرحبًا بك في DZ Net Gifts!\n\n"
-                        "اكتب «ابدأ» للمتابعة."
-                    )
+            # =========================
+            # معلومات المرسل
+            # =========================
 
+            sender = event.get("sender", {})
+            sender_id = sender.get("id")
+
+            if not sender_id:
+                continue
+
+            # =========================
+            # الرسالة
+            # =========================
+
+            message = event.get("message", {})
+
+            # نتجاهل الأحداث التي ليست رسائل نصية
+            if not message:
+                continue
+
+            text = message.get("text")
+
+            if not text:
+                continue
+
+            text = text.strip()
+
+            print(
+                f"Message received from {sender_id}: {text}"
+            )
+
+            # =========================
+            # الرد الحالي
+            # =========================
+
+            if text.lower() in ["ابدأ", "ابدا", "start"]:
+
+                reply = (
+                    "👋 مرحبًا بك في DZ Net Gifts!\n\n"
+                    "🎁 أهلاً بك في نظام الجوائز.\n\n"
+                    "للبدء، سنحتاج إلى تسجيل حسابك.\n\n"
+                    "اكتب «متابعة» للبدء."
+                )
+
+                send_message(sender_id, reply)
+
+            elif text.lower() in ["متابعة", "متابعه", "continue"]:
+
+                reply = (
+                    "📱 ممتاز!\n\n"
+                    "سنبدأ الآن عملية التسجيل.\n\n"
+                    "هذه الخطوة سيتم ربطها لاحقًا برقم الهاتف ورمز التحقق."
+                )
+
+                send_message(sender_id, reply)
+
+            else:
+
+                reply = (
+                    "👋 مرحبًا بك في DZ Net Gifts!\n\n"
+                    "اكتب «ابدأ» للبدء."
+                )
+
+                send_message(sender_id, reply)
+
+    # يجب أن نعيد 200 إلى Meta بسرعة
     return "EVENT_RECEIVED", 200
 
 
-def send_message(recipient_id, text):
-    url = "https://graph.facebook.com/v24.0/me/messages"
+# =========================
+# إرسال رسالة إلى Messenger
+# =========================
 
-    params = {
-        "access_token": PAGE_ACCESS_TOKEN
-    }
+def send_message(recipient_id, text):
+
+    if not PAGE_ACCESS_TOKEN:
+        print("ERROR: PAGE_ACCESS_TOKEN غير موجود")
+        return False
 
     payload = {
         "recipient": {
@@ -62,14 +157,66 @@ def send_message(recipient_id, text):
         }
     }
 
-    response = requests.post(
-        url,
-        params=params,
-        json=payload
+    params = {
+        "access_token": PAGE_ACCESS_TOKEN
+    }
+
+    try:
+
+        response = requests.post(
+            MESSAGES_URL,
+            params=params,
+            json=payload,
+            timeout=15
+        )
+
+        print(
+            "Send response:",
+            response.status_code,
+            response.text
+        )
+
+        if response.ok:
+            print("Message sent successfully")
+            return True
+
+        print("Message sending failed")
+        return False
+
+    except requests.RequestException as error:
+
+        print(
+            "Request error while sending message:",
+            error
+        )
+
+        return False
+
+
+# =========================
+# الصفحة الرئيسية
+# =========================
+
+@app.route("/", methods=["GET"])
+def home():
+
+    return (
+        "DZ Net Gifts Messenger Bot is running.",
+        200
     )
 
-    print("Send response:", response.status_code, response.text)
 
+# =========================
+# تشغيل التطبيق محليًا
+# =========================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+
+    port = int(
+        os.environ.get("PORT", 10000)
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
