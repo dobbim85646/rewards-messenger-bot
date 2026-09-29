@@ -1,0 +1,8 @@
+{
+  "name": "DZ Connect AI - Messenger Bot",
+  "description": "Algerian Darija and Arabic AI Messenger Bot powered by Gemini, featuring conversation memory, search routing, daily quotas, and full webhook handling.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
