@@ -1,5 +1,9 @@
-Flask>=3.0,<4
-requests>=2.31,<3
-google-genai>=1.30,<2
-psycopg[binary]>=3.2,<4
-gunicorn>=22,<24
+Flask>=3.1,<4
+gunicorn>=23,<24
+
+requests>=2.32,<3
+
+psycopg[binary]>=3.3,<4
+psycopg-pool>=3.3,<4
+
+google-genai>=1.75,<2
