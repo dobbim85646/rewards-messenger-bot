@@ -126,12 +126,14 @@ export async function callGemini(
     preferredModel,
     CONFIG.fastModel,
     ...CONFIG.fallbackModels,
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
     'gemini-3.1-flash-lite',
-    'gemini-flash-latest',
     'gemini-3.8-flash',
+    'gemini-flash-latest',
   ];
 
-  const deprecatedPatterns = ['gemini-2.', 'gemini-1.5', 'gemini-pro'];
+  const deprecatedPatterns = ['gemini-2.0', 'gemini-1.5', 'gemini-pro'];
   const models: string[] = [];
   for (const m of candidateList) {
     if (m && !models.includes(m) && !deprecatedPatterns.some(p => m.includes(p))) {
@@ -139,7 +141,7 @@ export async function callGemini(
     }
   }
   if (models.length === 0) {
-    models.push('gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash');
+    models.push('gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.8-flash');
   }
 
   let sawEmpty = false;

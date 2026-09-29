@@ -276,8 +276,12 @@ export async function processUserMessage(
 
   // 3. Empty input check
   if (!text && mediaParts.length === 0) {
-    await sendMessage(senderId, UNSUPPORTED_TEXT);
-    return { reply: UNSUPPORTED_TEXT };
+    if (mediaKind === undefined && text === '') {
+      // No text and no attachments (or unsupported attachment)
+      await sendMessage(senderId, UNSUPPORTED_TEXT);
+      return { reply: UNSUPPORTED_TEXT };
+    }
+    return { reply: '' };
   }
 
   // 4. Rate limit check
@@ -397,84 +401,103 @@ export async function handleWebhookEvent(event: any): Promise<boolean> {
   const senderId = event?.sender?.id;
   if (!senderId) return false;
 
-  const message = event.message || {};
-  const postback = event.postback || {};
+  // 1. Explicitly ignore delivery receipts, read receipts, reactions, echoes, etc.
+  if (
+    event.delivery ||
+    event.read ||
+    event.reaction ||
+    event.account_linking ||
+    event.optin ||
+    event.message?.is_echo
+  ) {
+    return true;
+  }
 
-  if (message.is_echo) return true;
-  if (!message && !postback) return true;
+  const message = event.message;
+  const postback = event.postback;
+
+  // 2. Ignore if neither a real message nor a postback exists
+  if (!message && !postback) {
+    return true;
+  }
 
   const eventId =
-    message.mid ||
-    postback.mid ||
-    `pb:${senderId}:${event.timestamp}:${postback.payload || ''}`;
+    message?.mid ||
+    postback?.mid ||
+    `event:${senderId}:${event.timestamp}`;
 
   if (store.hasProcessedEvent(eventId)) {
     console.log(`[Webhook] Duplicate event ignored | id=${eventId}`);
     return true;
   }
 
+  // Claim event immediately to block concurrent duplicate webhook retries
+  store.claimEvent(eventId);
+
   // Postback command
-  if (postback.payload) {
+  if (postback?.payload) {
     const cmd = postback.payload.toUpperCase();
     await runCommand(senderId, cmd);
-    store.claimEvent(eventId);
     return true;
   }
 
   // Quick reply
-  const quickPayload = message.quick_reply?.payload;
+  const quickPayload = message?.quick_reply?.payload;
   if (quickPayload) {
     await runCommand(senderId, quickPayload.toUpperCase());
-    store.claimEvent(eventId);
     return true;
   }
 
   // Text / Media message
-  const text = (message.text || '').trim().slice(0, CONFIG.maxMessageLength);
+  const text = (message?.text || '').trim().slice(0, CONFIG.maxMessageLength);
+  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+
+  // If no text and no attachments, ignore silently
+  if (!text && attachments.length === 0) {
+    return true;
+  }
+
   const mediaParts: ContentPart[] = [];
   let mediaKind: 'image' | 'audio' | undefined;
 
-  if (Array.isArray(message.attachments)) {
-    for (const att of message.attachments) {
-      if (att.type === 'image' && att.payload?.url) {
-        mediaKind = 'image';
-        try {
-          const resp = await fetch(att.payload.url);
-          if (resp.ok) {
-            const buf = await resp.arrayBuffer();
-            const b64 = Buffer.from(buf).toString('base64');
-            mediaParts.push({
-              inlineData: {
-                mimeType: resp.headers.get('content-type') || 'image/jpeg',
-                data: b64,
-              },
-            });
-          }
-        } catch (e) {
-          console.error('[Media download failed]', e);
+  for (const att of attachments) {
+    if (att.type === 'image' && att.payload?.url) {
+      mediaKind = 'image';
+      try {
+        const resp = await fetch(att.payload.url);
+        if (resp.ok) {
+          const buf = await resp.arrayBuffer();
+          const b64 = Buffer.from(buf).toString('base64');
+          mediaParts.push({
+            inlineData: {
+              mimeType: resp.headers.get('content-type') || 'image/jpeg',
+              data: b64,
+            },
+          });
         }
-      } else if (att.type === 'audio' && att.payload?.url) {
-        mediaKind = 'audio';
-        try {
-          const resp = await fetch(att.payload.url);
-          if (resp.ok) {
-            const buf = await resp.arrayBuffer();
-            const b64 = Buffer.from(buf).toString('base64');
-            mediaParts.push({
-              inlineData: {
-                mimeType: resp.headers.get('content-type') || 'audio/mp4',
-                data: b64,
-              },
-            });
-          }
-        } catch (e) {
-          console.error('[Media download failed]', e);
+      } catch (e) {
+        console.error('[Media download failed]', e);
+      }
+    } else if (att.type === 'audio' && att.payload?.url) {
+      mediaKind = 'audio';
+      try {
+        const resp = await fetch(att.payload.url);
+        if (resp.ok) {
+          const buf = await resp.arrayBuffer();
+          const b64 = Buffer.from(buf).toString('base64');
+          mediaParts.push({
+            inlineData: {
+              mimeType: resp.headers.get('content-type') || 'audio/mp4',
+              data: b64,
+            },
+          });
         }
+      } catch (e) {
+        console.error('[Media download failed]', e);
       }
     }
   }
 
   await processUserMessage(senderId, text, mediaParts, mediaKind);
-  store.claimEvent(eventId);
   return true;
 }

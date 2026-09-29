@@ -36,9 +36,9 @@ export const CONFIG = {
 
   // Gemini API
   geminiApiKey: getCleanApiKey(),
-  fastModel: (process.env.GEMINI_FAST_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').trim(),
-  strongModel: (process.env.GEMINI_STRONG_MODEL || process.env.GEMINI_FAST_MODEL || 'gemini-3.1-flash-lite').trim(),
-  fallbackModels: (process.env.GEMINI_FALLBACK_MODELS || 'gemini-flash-latest,gemini-3.8-flash')
+  fastModel: (process.env.GEMINI_FAST_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim(),
+  strongModel: (process.env.GEMINI_STRONG_MODEL || process.env.GEMINI_FAST_MODEL || 'gemini-2.5-flash').trim(),
+  fallbackModels: (process.env.GEMINI_FALLBACK_MODELS || 'gemini-2.5-flash-lite,gemini-3.1-flash-lite,gemini-3.8-flash')
     .split(',')
     .map(m => m.trim())
     .filter(Boolean),
