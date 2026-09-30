@@ -3,7 +3,9 @@ import { CONFIG, MESSAGES_URL } from './config.js';
 import { store } from './store.js';
 import {
   cleanForMessenger,
+  extractUserFacts,
   isHardRequest,
+  isImageGenerationRequest,
   normalize,
   shouldUseSearch,
   splitText,
@@ -13,8 +15,10 @@ import {
   callGemini,
   ContentPart,
   GeminiMessage,
+  generateImageWithPrompt,
   getGeminiClient,
 } from './gemini.js';
+import { storeGeneratedImage } from './image-store.js';
 
 export const WELCOME_TEXT = `أهلًا بيك في DZ Connect AI 👋🇩🇿
 
@@ -59,9 +63,10 @@ export const AI_ERROR_TEXT = `حدث خطأ مؤقت أثناء معالجة ر�
 export const AI_EMPTY_TEXT = `عذرًا، لم أتمكن من إنشاء رد هذه المرة. أعد صياغة سؤالك من فضلك.`;
 
 export const QUICK_REPLIES = [
+  { content_type: 'text', title: '💶 صرف السكوار', payload: 'SOUK_RATE' },
+  { content_type: 'text', title: '🎓 مساعد الباك', payload: 'BAC_HELP' },
+  { content_type: 'text', title: '🎨 توليد صورة', payload: 'DRAW_HELP' },
   { content_type: 'text', title: '❓ مساعدة', payload: 'HELP' },
-  { content_type: 'text', title: '🔒 الخصوصية', payload: 'PRIVACY' },
-  { content_type: 'text', title: '🗑️ مسح الذاكرة', payload: 'RESET' },
 ];
 
 const COMMAND_ALIASES: Record<string, string[]> = {
@@ -81,12 +86,17 @@ const COMMAND_ALIASES: Record<string, string[]> = {
   HELP: ['/help', 'help', 'مساعده', 'المساعده', 'الاوامر', 'اوامر'],
   PRIVACY: ['/privacy', 'privacy', 'الخصوصيه', 'سياسه الخصوصيه'],
   START: ['/start', 'start', 'ابدا', 'ابدأ'],
+  SOUK_RATE: ['السكوار', 'سكوار', 'سعر السكوار', 'صرف السكوار', 'سعر الاورو', 'سعر اليورو'],
+  BAC_HELP: ['باك', 'البكالوريا', 'مساعد الباك', 'bac'],
+  DRAW_HELP: ['رسم', 'توليد صورة', 'صورة'],
 };
 
 const COMMAND_LOOKUP = new Map<string, string>();
 for (const [cmd, aliases] of Object.entries(COMMAND_ALIASES)) {
+  COMMAND_LOOKUP.set(cmd, cmd);
   for (const alias of aliases) {
     COMMAND_LOOKUP.set(normalize(alias), cmd);
+    COMMAND_LOOKUP.set(alias.toUpperCase(), cmd);
   }
 }
 
@@ -172,6 +182,22 @@ export async function sendAction(recipientId: string, action: string): Promise<b
   });
 }
 
+export async function sendImage(recipientId: string, imageUrl: string): Promise<boolean> {
+  return graphPost(MESSAGES_URL, {
+    recipient: { id: recipientId },
+    messaging_type: 'RESPONSE',
+    message: {
+      attachment: {
+        type: 'image',
+        payload: {
+          url: imageUrl,
+          is_reusable: true,
+        },
+      },
+    },
+  });
+}
+
 export async function sendMessage(
   recipientId: string,
   text: string,
@@ -253,6 +279,33 @@ export async function runCommand(senderId: string, command: string): Promise<str
     return WELCOME_TEXT;
   }
 
+  if (upper === 'BAC_HELP') {
+    const bacText = `🎓 مرحبًا بك في ركن المساعد الدراسي والبكالوريا! 🇩🇿
+
+أنا هنا باش نعاونك في كامل المواد والتخصصات:
+• حل التمارين والمسائل: تقدر ترسل نص التمرين أو تصوره وتبعث الصورة 📸
+• تلخيص الدروس المعقدة في نقاط ميسرة وسريعة الحفظ.
+• شرح مواضيع البكالوريا السابقة ومنهجية الإجابة النموذجية.
+• تنظيم جدول المراجعة والتحضير النفسي للامتحانات.
+
+واش هي المادة أو السؤال اللي راك حاب نبدلو بيه درك؟`;
+    await sendMessage(senderId, bacText, QUICK_REPLIES);
+    return bacText;
+  }
+
+  if (upper === 'DRAW_HELP') {
+    const drawText = `🎨 ميزة توليد الصور بالذكاء الاصطناعي:
+
+تقدر تصنع أي صورة في بالك بجودة عالية! فقط اكتب في رسالتك «ارسم لي» أو «صمم لي» واكتب الوصف بالتفصيل.
+
+💡 أمثلة يمكنك تجربتها الآن:
+• «ارسم لي سيارة كلاسيكية في شوارع القصبة العتيقة»
+• «صمم لي لوغو مقهى عصري أنيق باسم DZ Coffee»
+• «ارسم لي قط يرتدي برنوس جزائري في غروب الشمس»`;
+    await sendMessage(senderId, drawText, QUICK_REPLIES);
+    return drawText;
+  }
+
   return null;
 }
 
@@ -276,13 +329,60 @@ export async function processUserMessage(
 
   // 1. Text commands check
   if (text) {
-    const recognizedCommand = COMMAND_LOOKUP.get(normalize(text));
+    const rawUpper = text.trim().toUpperCase();
+    const normalizedKey = normalize(text);
+    const recognizedCommand =
+      COMMAND_LOOKUP.get(rawUpper) ||
+      COMMAND_LOOKUP.get(normalizedKey) ||
+      COMMAND_LOOKUP.get(normalizedKey.replace(/\s+/g, '_').toUpperCase());
+
     if (recognizedCommand) {
-      const commandReply = await runCommand(senderId, recognizedCommand);
-      if (commandReply) {
+      if (recognizedCommand === 'SOUK_RATE') {
+        text = 'اعطني سعر صرف 100 أورو و100 دولار مقابل الدينار الجزائري في سوق السكوار (السكوار بورسعيد) اليوم بالتفصيل وبشكل موجز.';
+      } else {
+        const commandReply = await runCommand(senderId, recognizedCommand);
+        if (commandReply) {
+          return {
+            reply: commandReply,
+            quickReplies: recognizedCommand === 'RESET' ? QUICK_REPLIES.slice(0, 2) : QUICK_REPLIES,
+          };
+        }
+      }
+    }
+  }
+
+  // Auto-learn user facts into persistent memory
+  if (text) {
+    const facts = extractUserFacts(text);
+    if (facts.length > 0) {
+      store.appendUserFacts(senderId, facts);
+      console.log(`[Memory] Learned facts for user ${senderId}:`, facts);
+    }
+  }
+
+  // AI Image Generation Request Check
+  if (text && mediaParts.length === 0) {
+    const imgCheck = isImageGenerationRequest(text);
+    if (imgCheck.isImage && imgCheck.prompt) {
+      await sendAction(senderId, 'typing_on');
+      store.incrementStat('media_requests');
+
+      const imgBytes = await generateImageWithPrompt(imgCheck.prompt);
+      if (imgBytes) {
+        const imgId = crypto.randomUUID();
+        const imageUrl = storeGeneratedImage(imgId, imgBytes);
+
+        await sendImage(senderId, imageUrl);
+        const caption = `🎨 تفضل، هذي هي الصورة اللي طلبتها بالذكاء الاصطناعي: «${imgCheck.prompt}» ✨\nتقدر تقولي واش حاب نعدل فيها أو نولدو صورة جديدة أخرى!`;
+        await sendMessage(senderId, caption, QUICK_REPLIES);
+
+        store.saveMessage(senderId, 'user', text);
+        store.saveMessage(senderId, 'model', caption);
+
         return {
-          reply: commandReply,
-          quickReplies: recognizedCommand === 'RESET' ? QUICK_REPLIES.slice(0, 2) : QUICK_REPLIES,
+          reply: caption,
+          quickReplies: QUICK_REPLIES,
+          status: 'image_generated',
         };
       }
     }
@@ -418,6 +518,59 @@ export async function processUserMessage(
   };
 }
 
+// User Message Aggregation Queue (Debounce consecutive messages from the same user)
+interface PendingBatch {
+  texts: string[];
+  mediaParts: ContentPart[];
+  mediaKind?: 'image' | 'audio';
+  timer: NodeJS.Timeout;
+}
+
+const userMessageBatches = new Map<string, PendingBatch>();
+const BATCH_WAIT_MS = 1800; // 1.8s wait window for consecutive messages
+
+export async function enqueueBatchedMessage(
+  senderId: string,
+  text: string,
+  mediaParts: ContentPart[] = [],
+  mediaKind?: 'image' | 'audio'
+): Promise<void> {
+  // Show typing action right away so user sees the bot is active
+  sendAction(senderId, 'typing_on').catch(() => {});
+
+  const existing = userMessageBatches.get(senderId);
+  if (existing) {
+    clearTimeout(existing.timer);
+    if (text) existing.texts.push(text);
+    if (mediaParts.length > 0) existing.mediaParts.push(...mediaParts);
+    if (mediaKind) existing.mediaKind = mediaKind;
+
+    console.log(`[Batch] Aggregated message for user ${senderId} (total count: ${existing.texts.length})`);
+
+    existing.timer = setTimeout(() => {
+      userMessageBatches.delete(senderId);
+      const combinedText = existing.texts.filter(Boolean).join('\n');
+      processUserMessage(senderId, combinedText, existing.mediaParts, existing.mediaKind).catch(err => {
+        console.error(`[Batch] Error processing aggregated message for ${senderId}:`, err);
+      });
+    }, BATCH_WAIT_MS);
+  } else {
+    const batch: PendingBatch = {
+      texts: text ? [text] : [],
+      mediaParts: [...mediaParts],
+      mediaKind,
+      timer: setTimeout(() => {
+        userMessageBatches.delete(senderId);
+        const combinedText = batch.texts.filter(Boolean).join('\n');
+        processUserMessage(senderId, combinedText, batch.mediaParts, batch.mediaKind).catch(err => {
+          console.error(`[Batch] Error processing aggregated message for ${senderId}:`, err);
+        });
+      }, BATCH_WAIT_MS),
+    };
+    userMessageBatches.set(senderId, batch);
+  }
+}
+
 // Handle an incoming Facebook webhook event
 export async function handleWebhookEvent(event: any): Promise<boolean> {
   const senderId = event?.sender?.id;
@@ -520,6 +673,6 @@ export async function handleWebhookEvent(event: any): Promise<boolean> {
     }
   }
 
-  await processUserMessage(senderId, text, mediaParts, mediaKind);
+  await enqueueBatchedMessage(senderId, text, mediaParts, mediaKind);
   return true;
 }

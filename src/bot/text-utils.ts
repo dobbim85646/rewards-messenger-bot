@@ -79,6 +79,24 @@ const SEARCH_PHRASES = [
   'الطقس اليوم',
   'نتائج اليوم',
   'مباراة اليوم',
+  'سعر اليورو',
+  'سعر الدولار',
+  'سعر الصرف',
+  'سوق السكوار',
+  'السكوار',
+  'سعر الذهب',
+  'اسعار العملات',
+  'سعر الاورو',
+  'صرف اليوم',
+  'بشحال الاورو',
+  'شحال الاورو',
+  'شحال الدولار',
+  'شحال الذهب',
+  'شحال يدير',
+  'بشحال يدير',
+  'سعر السيارات',
+  'نتائج الباك',
+  'تاريخ الباك',
   'what is the latest',
   'latest news',
   'current price',
@@ -95,11 +113,20 @@ const SEARCH_WORDS = new Set([
   'اخبار',
   'سعر',
   'اسعار',
+  'سكوار',
+  'اورو',
+  'يورو',
+  'دولار',
+  'دينار',
+  'صرف',
+  'الذهب',
   'طقس',
   'نتيجة',
   'نتائج',
   'مباراة',
   'مباريات',
+  'باك',
+  'bac',
   'latest',
   'today',
   'news',
@@ -112,6 +139,45 @@ const SEARCH_WORDS = new Set([
   'update',
   'updates',
 ]);
+
+const IMAGE_TRIGGERS = [
+  'ارسم لي',
+  'ارسم',
+  'توليد صورة',
+  'ولد صورة',
+  'انشئ صورة',
+  'اعمل لي صورة',
+  'صمم لي صورة',
+  'صمم صورة',
+  'اصنع لي صورة',
+  'صورة لـ',
+  'صورة عن',
+  'generate image',
+  'draw me',
+  'draw a',
+  'create an image',
+  'paint a',
+];
+
+export function isImageGenerationRequest(text: string): { isImage: boolean; prompt: string } {
+  if (!text) return { isImage: false, prompt: '' };
+  const raw = text.trim();
+  const lower = raw.toLowerCase();
+
+  for (const trigger of IMAGE_TRIGGERS) {
+    if (lower.startsWith(trigger)) {
+      const prompt = raw.slice(trigger.length).replace(/^[:\s\-]+/, '').trim();
+      return { isImage: true, prompt: prompt || raw };
+    }
+    if (lower.includes(trigger) && raw.length < 200) {
+      const idx = lower.indexOf(trigger);
+      const prompt = raw.slice(idx + trigger.length).replace(/^[:\s\-]+/, '').trim();
+      return { isImage: true, prompt: prompt || raw };
+    }
+  }
+
+  return { isImage: false, prompt: '' };
+}
 
 export function shouldUseSearch(text: string): boolean {
   if (!CONFIG.enableSearch) return false;
@@ -208,4 +274,30 @@ export function sanitizeContextValue(value: string | undefined | null, limit: nu
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, limit);
+}
+
+export function extractUserFacts(text: string): string[] {
+  if (!text) return [];
+  const facts: string[] = [];
+  const raw = text.trim();
+
+  // Name extraction
+  const nameMatch = raw.match(/(?:اسمي|انا اسمي|عيطلي|سميني|my name is)\s+([^\s,،.!\?]+)/i);
+  if (nameMatch && nameMatch[1].length >= 2 && !['شنو', 'واش', 'ماذا'].includes(nameMatch[1])) {
+    facts.push(`اسم المستخدم: ${nameMatch[1]}`);
+  }
+
+  // City / Wilaya extraction
+  const cityMatch = raw.match(/(?:انا من|نسكن في|عايش في|من ولاية|ولاية)\s+([^\s,،.!\?]+)/i);
+  if (cityMatch && cityMatch[1].length >= 2 && !['وين', 'شكون'].includes(cityMatch[1])) {
+    facts.push(`ولاية/مدينة المستخدم: ${cityMatch[1]}`);
+  }
+
+  // Field / Specialty
+  const studyMatch = raw.match(/(?:نقرا|تخصصي|طالب في|تخصص|ندرس|مهنتي|خدمتي)\s+([^,،.!\?\n]+)/i);
+  if (studyMatch && studyMatch[1].trim().length >= 3) {
+    facts.push(`تخصص/دراسة/عمل المستخدم: ${studyMatch[1].trim().slice(0, 40)}`);
+  }
+
+  return facts;
 }

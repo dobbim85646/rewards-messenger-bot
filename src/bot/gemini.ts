@@ -34,7 +34,7 @@ const SYSTEM_INSTRUCTION = `
 الأسلوب:
 1. عند التحية (مثل: مرحبا، السلام عليكم، سلام، واش راك): رحب بالمستخدم ترحيبًا دافئًا بالدارجة أو العربية، وقدم نفسك باختصار («أنا DZ Connect AI، كيفاش نقدر نعاونك اليوم؟»)، واقترح أمثلة عما يمكنك فعله (الإجابة عن الأسئلة، المساعدة في العمل أو الدراسة، تحليل الصور، أو الاستماع للرسائل الصوتية).
 2. أجب بنفس لغة المستخدم وطريقة كتابته قدر الإمكان.
-3. كن دقيقًا ومفيدًا، ولا تكتفِ برد مقتضب من كلمة واحدة.
+3. كن عمليًا ومفيدًا وموجزًا في الدردشة العادية (فقرة إلى 3 فقرات قصيرة مريحة للقراءة على شاشة الهاتف)، ولا تطيل في الشرح إلا إذا طلب المستخدم تفاصيل موسعة أو تحليلًا كاملًا.
 4. لا تستخدم Markdown المعقد (تجنب الجداول والخطوط الغليظة المفرطة)، واعتمد فقرات واضحة وقوائم بسيطة.
 5. في المحادثة الجارية، لا تكرر الترحيب في كل رد.
 6. إذا كان السؤال غير واضح، اسأل سؤال استفساري واضح للمساعدة.
@@ -237,5 +237,35 @@ export async function callGemini(
     return 'عذرًا، لم أتمكن من إنشاء رد هذه المرة. أعد صياغة سؤالك من فضلك.';
   }
 
+  return null;
+}
+
+export async function generateImageWithPrompt(prompt: string): Promise<string | null> {
+  const client = getGeminiClient();
+  if (!client) {
+    console.warn('[Imagen] GEMINI_API_KEY is not configured for image generation');
+    return null;
+  }
+
+  try {
+    console.log(`[Imagen] Generating image with imagen-3.0-generate-002: "${prompt.slice(0, 100)}"`);
+    const response = await client.models.generateImages({
+      model: 'imagen-3.0-generate-002',
+      prompt,
+      config: {
+        numberOfImages: 1,
+        outputMimeType: 'image/jpeg',
+        aspectRatio: '1:1',
+      },
+    });
+
+    const imgBytes = response?.generatedImages?.[0]?.image?.imageBytes;
+    if (imgBytes) {
+      console.log(`[Imagen] Successfully generated image (${imgBytes.length} chars base64)`);
+      return imgBytes;
+    }
+  } catch (err: any) {
+    console.error('[Imagen] Error generating image:', err?.message || err);
+  }
   return null;
 }

@@ -547,6 +547,27 @@ export default function App() {
             <div className="px-4 py-2 bg-slate-850/60 border-t border-slate-800/80 flex flex-wrap gap-2 items-center">
               <span className="text-[11px] text-slate-400 font-medium">ردود سريعة:</span>
               <button
+                onClick={() => handleSendMessage('شحال سعر صرف الأورو والدولار في السكوار اليوم؟')}
+                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-full border border-slate-700 flex items-center gap-1 transition"
+              >
+                <Search className="w-3 h-3 text-emerald-400" />
+                💶 صرف السكوار
+              </button>
+              <button
+                onClick={() => handleSendMessage('BAC_HELP')}
+                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-full border border-slate-700 flex items-center gap-1 transition"
+              >
+                <Cpu className="w-3 h-3 text-blue-400" />
+                🎓 مساعد الباك
+              </button>
+              <button
+                onClick={() => handleSendMessage('ارسم لي سيارة كلاسيكية في شوارع القصبة بالجزائر العاصمة')}
+                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-full border border-slate-700 flex items-center gap-1 transition"
+              >
+                <ImageIcon className="w-3 h-3 text-purple-400" />
+                🎨 توليد صورة
+              </button>
+              <button
                 onClick={() => handleSendMessage('مساعدة')}
                 className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-full border border-slate-700 flex items-center gap-1 transition"
               >
@@ -554,25 +575,11 @@ export default function App() {
                 ❓ مساعدة
               </button>
               <button
-                onClick={() => handleSendMessage('الخصوصية')}
-                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-full border border-slate-700 flex items-center gap-1 transition"
-              >
-                <Shield className="w-3 h-3 text-emerald-400" />
-                🔒 الخصوصية
-              </button>
-              <button
                 onClick={() => handleSendMessage('ابدأ من جديد')}
                 className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-full border border-slate-700 flex items-center gap-1 transition"
               >
                 <Trash2 className="w-3 h-3 text-rose-400" />
                 🗑️ مسح الذاكرة
-              </button>
-              <button
-                onClick={() => handleSendMessage('واش هي أسعار الذهب اليوم بالدينار الجزائري؟')}
-                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-full border border-slate-700 flex items-center gap-1 transition"
-              >
-                <Search className="w-3 h-3 text-amber-400" />
-                🔎 تجربة بحث مباشر
               </button>
             </div>
 

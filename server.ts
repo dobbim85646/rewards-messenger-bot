@@ -167,6 +167,23 @@ app.post('/api/subscribe-page', async (_req: Request, res: Response) => {
 });
 
 // =========================================================
+// AI Generated Images Cache & Serving
+// =========================================================
+
+import { generatedImagesStore } from './src/bot/image-store.js';
+
+app.get('/api/images/:id.jpg', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const item = generatedImagesStore.get(id);
+  if (!item) {
+    return res.status(404).send('Image expired or not found');
+  }
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(item.buffer);
+});
+
+// =========================================================
 // Health Route
 // =========================================================
 

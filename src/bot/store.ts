@@ -82,6 +82,19 @@ class BotStore {
     user.updated_at = new Date();
   }
 
+  appendUserFacts(senderId: string, facts: string[]): void {
+    if (!facts || facts.length === 0) return;
+    const user = this.ensureUser(senderId);
+    const existing = user.summary ? user.summary.split(' • ').map(s => s.trim()) : [];
+    for (const f of facts) {
+      if (!existing.includes(f)) {
+        existing.push(f);
+      }
+    }
+    user.summary = existing.slice(-8).join(' • ');
+    user.updated_at = new Date();
+  }
+
   saveMessage(senderId: string, role: 'user' | 'model', content: string): void {
     if (!content) return;
     this.ensureUser(senderId);
