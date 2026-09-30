@@ -10,6 +10,10 @@ services:
         value: production
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_FAST_MODEL
+        value: gemini-3.1-flash-lite
+      - key: GEMINI_STRONG_MODEL
+        value: gemini-3.1-flash-lite
       - key: VERIFY_TOKEN
         sync: false
       - key: PAGE_ACCESS_TOKEN

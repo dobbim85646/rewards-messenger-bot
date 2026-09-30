@@ -132,22 +132,22 @@ export async function callGemini(
     const model = models[modelIndex];
     const attempts = CONFIG.geminiMaxRetries + 1;
 
+    // Resolve thinking level
+    let thinkingConfig: { thinkingLevel?: ThinkingLevel } | undefined;
+    if (model.includes('gemini-3')) {
+      if (thinkingLevelStr === 'low') {
+        thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+      } else if (thinkingLevelStr === 'high') {
+        thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
+      } else if (thinkingLevelStr === 'minimal') {
+        thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+      }
+    }
+
     for (let attempt = 0; attempt < attempts; attempt++) {
       const started = Date.now();
       try {
         console.log(`[Gemini] Calling ${model} | search=${useSearch} | attempt=${attempt + 1}/${attempts}`);
-
-        // Resolve thinking level
-        let thinkingConfig: { thinkingLevel?: ThinkingLevel } | undefined;
-        if (model.includes('gemini-3')) {
-          if (thinkingLevelStr === 'low') {
-            thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
-          } else if (thinkingLevelStr === 'high') {
-            thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
-          } else if (thinkingLevelStr === 'minimal') {
-            thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
-          }
-        }
 
         const tools = useSearch ? [{ googleSearch: {} }] : undefined;
 
@@ -200,6 +200,13 @@ export async function callGemini(
         if (useSearch) {
           console.warn('[Gemini] Search tool failed, retrying without search grounding...');
           useSearch = false;
+          attempt--;
+          continue;
+        }
+
+        if (thinkingConfig) {
+          console.warn('[Gemini] Thinking config failed, retrying without thinkingConfig...');
+          thinkingConfig = undefined;
           attempt--;
           continue;
         }

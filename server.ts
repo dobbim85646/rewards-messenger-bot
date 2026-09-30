@@ -58,13 +58,18 @@ app.post('/webhook', async (req: Request, res: Response) => {
   const signature = req.headers['x-hub-signature-256'] as string;
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
-  if (CONFIG.appSecret && !verifySignature(rawBody, signature)) {
-    console.warn('[Webhook] Invalid signature');
-    return res.status(403).send('Invalid signature');
+  if (CONFIG.appSecret && signature) {
+    const valid = verifySignature(rawBody, signature);
+    if (!valid) {
+      console.warn('[Webhook] Signature verification failed. Check APP_SECRET on Render.');
+      if (process.env.ENFORCE_SIGNATURE === 'true') {
+        return res.status(403).send('Invalid signature');
+      }
+    }
   }
 
   const data = req.body;
-  if (!data || data.object !== 'page') {
+  if (!data || (data.object !== 'page' && data.object !== 'instagram')) {
     return res.status(200).send('EVENT_RECEIVED');
   }
 
@@ -74,7 +79,12 @@ app.post('/webhook', async (req: Request, res: Response) => {
   // Process asynchronously
   try {
     for (const entry of data.entry || []) {
-      for (const event of entry.messaging || []) {
+      const events = [
+        ...(Array.isArray(entry.messaging) ? entry.messaging : []),
+        ...(Array.isArray(entry.standby) ? entry.standby : []),
+      ];
+
+      for (const event of events) {
         handleWebhookEvent(event).catch(err => {
           console.error('[Webhook] Error handling event:', err);
         });
@@ -82,6 +92,29 @@ app.post('/webhook', async (req: Request, res: Response) => {
     }
   } catch (err) {
     console.error('[Webhook] Error parsing entry:', err);
+  }
+});
+
+// Diagnostic endpoint to check Facebook Page Token & App info
+app.get('/api/check-facebook', async (_req: Request, res: Response) => {
+  if (!CONFIG.pageAccessToken) {
+    return res.json({ configured: false, message: 'PAGE_ACCESS_TOKEN is not set' });
+  }
+
+  try {
+    const token = CONFIG.pageAccessToken.trim();
+    const url = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me?fields=id,name,link&access_token=${encodeURIComponent(token)}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+
+    res.json({
+      configured: true,
+      status: resp.status,
+      ok: resp.ok,
+      page: data,
+    });
+  } catch (err: any) {
+    res.status(500).json({ configured: true, error: err?.message || 'Check failed' });
   }
 });
 

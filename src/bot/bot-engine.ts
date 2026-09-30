@@ -139,11 +139,12 @@ export async function graphPost(url: string, payload: any): Promise<boolean> {
   }
 
   try {
-    const fullUrl = `${url}?access_token=${encodeURIComponent(CONFIG.pageAccessToken)}`;
+    const fullUrl = `${url}?access_token=${encodeURIComponent(CONFIG.pageAccessToken.trim())}`;
     const res = await fetch(fullUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CONFIG.pageAccessToken.trim()}`,
         'User-Agent': 'DZ-Connect-AI/1.0',
       },
       body: JSON.stringify(payload),
@@ -154,9 +155,9 @@ export async function graphPost(url: string, payload: any): Promise<boolean> {
     }
     const errText = await res.text();
     if (errText.includes('1893063')) {
-      console.warn(`[Graph API] Recipient ${payload?.recipient?.id || ''} cannot receive messages: user has blocked the bot or the Meta app is in Development Mode without Tester role.`);
+      console.warn(`[Graph API] Recipient ${payload?.recipient?.id || ''} cannot receive messages: Page may be restricted, user blocked the bot, or Meta app is in Development Mode without Tester role.`);
     } else {
-      console.error(`[Graph API Error] Status ${res.status}:`, errText.slice(0, 300));
+      console.error(`[Graph API Error] Status ${res.status}:`, errText.slice(0, 400));
     }
     return false;
   } catch (err) {
@@ -190,11 +191,21 @@ export async function sendMessage(
       message.quick_replies = quickReplies;
     }
 
-    const ok = await graphPost(MESSAGES_URL, {
+    let ok = await graphPost(MESSAGES_URL, {
       recipient: { id: recipientId },
       messaging_type: 'RESPONSE',
       message,
     });
+
+    // Fallback: If sending with quick_replies failed, retry immediately without quick_replies
+    if (!ok && message.quick_replies) {
+      console.warn('[Messenger] Sending with quick_replies failed, retrying plain text...');
+      ok = await graphPost(MESSAGES_URL, {
+        recipient: { id: recipientId },
+        messaging_type: 'RESPONSE',
+        message: { text: chunk },
+      });
+    }
 
     if (ok) {
       store.incrementStat('sent_messages');
