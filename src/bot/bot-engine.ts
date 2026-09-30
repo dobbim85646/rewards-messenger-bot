@@ -154,10 +154,9 @@ export async function graphPost(url: string, payload: any): Promise<boolean> {
       return true;
     }
     const errText = await res.text();
+    console.error(`[Graph API Error] Status ${res.status}:`, errText);
     if (errText.includes('1893063')) {
       console.warn(`[Graph API] Recipient ${payload?.recipient?.id || ''} cannot receive messages: Page may be restricted, user blocked the bot, or Meta app is in Development Mode without Tester role.`);
-    } else {
-      console.error(`[Graph API Error] Status ${res.status}:`, errText.slice(0, 400));
     }
     return false;
   } catch (err) {

@@ -103,28 +103,66 @@ app.get('/api/check-facebook', async (_req: Request, res: Response) => {
 
   try {
     const token = CONFIG.pageAccessToken.trim();
-    // Query basic Page info
-    const url = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me?fields=id,name&access_token=${encodeURIComponent(token)}`;
-    const resp = await fetch(url);
-    const data = await resp.json();
+    // 1. Query basic Page info with fallback
+    const meUrl = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me?fields=id,name&access_token=${encodeURIComponent(token)}`;
+    const meResp = await fetch(meUrl);
+    let meData = await meResp.json();
 
-    // Query permissions or debug token if available
-    let permissions = null;
+    // If querying fields failed, try querying bare /me
+    if (!meResp.ok) {
+      try {
+        const bareResp = await fetch(`https://graph.facebook.com/${CONFIG.graphApiVersion}/me?access_token=${encodeURIComponent(token)}`);
+        const bareData = await bareResp.json();
+        if (bareResp.ok) {
+          meData = { ...bareData, note: 'Fetched via bare /me endpoint' };
+        }
+      } catch {}
+    }
+
+    // 2. Query App info to verify which App issued the token
+    let appInfo = null;
     try {
-      const permUrl = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me/permissions?access_token=${encodeURIComponent(token)}`;
-      const pResp = await fetch(permUrl);
-      permissions = await pResp.json();
+      const appResp = await fetch(`https://graph.facebook.com/${CONFIG.graphApiVersion}/app?access_token=${encodeURIComponent(token)}`);
+      appInfo = await appResp.json();
+    } catch {}
+
+    // 3. Query subscribed apps
+    let subscribedApps = null;
+    try {
+      const subUrl = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me/subscribed_apps?access_token=${encodeURIComponent(token)}`;
+      const subResp = await fetch(subUrl);
+      subscribedApps = await subResp.json();
     } catch {}
 
     res.json({
       configured: true,
-      status: resp.status,
-      ok: resp.ok,
-      page: data,
-      permissions,
+      token_preview: token.slice(0, 10) + '...' + token.slice(-5),
+      token_length: token.length,
+      status: meResp.status,
+      ok: meResp.ok,
+      page: meData,
+      app_info: appInfo,
+      subscribed_apps: subscribedApps,
     });
   } catch (err: any) {
     res.status(500).json({ configured: true, error: err?.message || 'Check failed' });
+  }
+});
+
+// Endpoint to automatically subscribe Facebook App to the Page webhooks
+app.post('/api/subscribe-page', async (_req: Request, res: Response) => {
+  if (!CONFIG.pageAccessToken) {
+    return res.status(400).json({ success: false, error: 'PAGE_ACCESS_TOKEN is not set' });
+  }
+
+  try {
+    const token = CONFIG.pageAccessToken.trim();
+    const url = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${encodeURIComponent(token)}`;
+    const resp = await fetch(url, { method: 'POST' });
+    const data = await resp.json();
+    res.json({ status: resp.status, ok: resp.ok, result: data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
   }
 });
 
