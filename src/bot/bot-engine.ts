@@ -197,12 +197,21 @@ export async function sendMessage(
       message,
     });
 
-    // Fallback: If sending with quick_replies failed, retry immediately without quick_replies
+    // Fallback 1: If sending with quick_replies failed, retry without quick_replies
     if (!ok && message.quick_replies) {
       console.warn('[Messenger] Sending with quick_replies failed, retrying plain text...');
       ok = await graphPost(MESSAGES_URL, {
         recipient: { id: recipientId },
         messaging_type: 'RESPONSE',
+        message: { text: chunk },
+      });
+    }
+
+    // Fallback 2: If RESPONSE messaging_type failed, retry with simple payload
+    if (!ok) {
+      console.warn('[Messenger] Sending with RESPONSE type failed, retrying simple message payload...');
+      ok = await graphPost(MESSAGES_URL, {
+        recipient: { id: recipientId },
         message: { text: chunk },
       });
     }
@@ -398,7 +407,6 @@ export async function processUserMessage(
 
   // 9. Send out message
   await sendMessage(senderId, finalReply);
-  await sendAction(senderId, 'typing_off');
 
   // Compact memory
   store.compactMemory(senderId);

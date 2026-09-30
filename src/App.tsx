@@ -27,6 +27,7 @@ interface ChatMessage {
   modelUsed?: string;
   searchUsed?: boolean;
   timestamp: string;
+  isAnimated?: boolean;
 }
 
 interface HealthData {
@@ -41,6 +42,78 @@ interface HealthData {
   daily_strong_limit: number;
   messenger_configured: boolean;
   signature_verification: boolean;
+}
+
+// Typing animation component for smooth letter-by-letter rendering
+function TypewriterText({
+  text,
+  isAnimated = false,
+  onProgress,
+  onComplete,
+}: {
+  text: string;
+  isAnimated?: boolean;
+  onProgress?: () => void;
+  onComplete?: () => void;
+}) {
+  const [displayText, setDisplayText] = useState(isAnimated ? '' : text);
+  const [isTyping, setIsTyping] = useState(isAnimated);
+
+  useEffect(() => {
+    if (!isAnimated) {
+      setDisplayText(text);
+      setIsTyping(false);
+      return;
+    }
+
+    let i = 0;
+    setIsTyping(true);
+    setDisplayText('');
+
+    // Dynamic speed: longer text types faster so user does not wait excessively
+    const step = text.length > 600 ? 4 : text.length > 250 ? 2 : 1;
+    const intervalTime = text.length > 600 ? 8 : text.length > 250 ? 12 : 16;
+
+    const timer = setInterval(() => {
+      i += step;
+      if (i >= text.length) {
+        setDisplayText(text);
+        setIsTyping(false);
+        clearInterval(timer);
+        onProgress?.();
+        onComplete?.();
+      } else {
+        setDisplayText(text.slice(0, i));
+        if (i % (step * 3) === 0) {
+          onProgress?.();
+        }
+      }
+    }, intervalTime);
+
+    return () => clearInterval(timer);
+  }, [text, isAnimated]);
+
+  const handleInstantReveal = () => {
+    if (isTyping) {
+      setDisplayText(text);
+      setIsTyping(false);
+      onProgress?.();
+      onComplete?.();
+    }
+  };
+
+  return (
+    <span
+      className={isTyping ? 'cursor-pointer select-none' : ''}
+      onClick={handleInstantReveal}
+      title={isTyping ? 'انقر لعرض كامل الرسالة فوراً' : undefined}
+    >
+      {displayText}
+      {isTyping && (
+        <span className="inline-block w-1.5 h-3.5 bg-blue-400 rounded-xs mx-0.5 animate-pulse align-middle" />
+      )}
+    </span>
+  );
 }
 
 export default function App() {
@@ -173,6 +246,7 @@ export default function App() {
             modelUsed: data.modelUsed,
             searchUsed: data.searchUsed,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isAnimated: true,
           },
         ]);
         fetchStats();
@@ -184,6 +258,7 @@ export default function App() {
             sender: 'model',
             text: data.error || 'حدث خطأ أثناء معالجة رسالتك.',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isAnimated: true,
           },
         ]);
       }
@@ -195,6 +270,7 @@ export default function App() {
           sender: 'model',
           text: 'تعذر الاتصال بالخادم. تأكد من تشغيل البوت ومفتاح Gemini.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isAnimated: true,
         },
       ]);
     } finally {
@@ -395,46 +471,72 @@ export default function App() {
               {messages.map(msg => (
                 <div
                   key={msg.id}
-                  className={`flex flex-col ${msg.sender === 'user' ? 'items-start' : 'items-end'}`}
+                  className={`flex gap-2.5 ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}
                 >
-                  <div
-                    className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                      msg.sender === 'user'
-                        ? 'bg-blue-600 text-white rounded-br-none shadow-sm'
-                        : 'bg-slate-800 text-slate-100 border border-slate-700/60 rounded-bl-none shadow-md'
-                    }`}
-                  >
-                    {msg.text}
-                  </div>
+                  {msg.sender === 'model' && (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-[11px] font-bold text-white shadow shrink-0 self-end mb-5">
+                      DZ
+                    </div>
+                  )}
 
-                  {/* Metadata pills for bot replies */}
-                  <div className="flex items-center gap-2 mt-1 px-1 text-[11px] text-slate-400">
-                    <span>{msg.timestamp}</span>
-                    {msg.modelUsed && (
-                      <span className="flex items-center gap-1 text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-700">
-                        <Cpu className="w-2.5 h-2.5 text-sky-400" />
-                        {msg.modelUsed}
-                      </span>
-                    )}
-                    {msg.searchUsed && (
-                      <span className="flex items-center gap-1 text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800">
-                        <Search className="w-2.5 h-2.5" />
-                        Google Search
-                      </span>
-                    )}
+                  <div className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${msg.sender === 'user' ? 'items-start' : 'items-end'}`}>
+                    <div
+                      className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap transition-all ${
+                        msg.sender === 'user'
+                          ? 'bg-blue-600 text-white rounded-br-none shadow-sm'
+                          : 'bg-slate-800 text-slate-100 border border-slate-700/60 rounded-bl-none shadow-md'
+                      }`}
+                    >
+                      {msg.sender === 'model' && msg.isAnimated ? (
+                        <TypewriterText
+                          text={msg.text}
+                          isAnimated={true}
+                          onProgress={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                          onComplete={() => {
+                            setMessages(prev =>
+                              prev.map(m => (m.id === msg.id ? { ...m, isAnimated: false } : m))
+                            );
+                          }}
+                        />
+                      ) : (
+                        msg.text
+                      )}
+                    </div>
+
+                    {/* Metadata pills for bot replies */}
+                    <div className="flex items-center gap-2 mt-1 px-1 text-[11px] text-slate-400">
+                      <span>{msg.timestamp}</span>
+                      {msg.modelUsed && (
+                        <span className="flex items-center gap-1 text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-700">
+                          <Cpu className="w-2.5 h-2.5 text-sky-400" />
+                          {msg.modelUsed}
+                        </span>
+                      )}
+                      {msg.searchUsed && (
+                        <span className="flex items-center gap-1 text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800">
+                          <Search className="w-2.5 h-2.5" />
+                          Google Search
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
 
               {isLoading && (
-                <div className="flex items-end gap-2">
-                  <div className="bg-slate-800 border border-slate-700/60 rounded-2xl rounded-bl-none px-4 py-3 flex items-center gap-2 text-slate-300 text-xs">
-                    <div className="flex gap-1">
-                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className="flex items-end gap-2.5 justify-end">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-[11px] font-bold text-white shadow shrink-0">
+                    DZ
+                  </div>
+                  <div className="bg-slate-800 border border-slate-700/70 rounded-2xl rounded-bl-none px-4 py-3 flex items-center gap-3 text-slate-300 shadow-md">
+                    <div className="flex items-center gap-1 py-0.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '0ms', animationDuration: '800ms' }} />
+                      <span className="w-2 h-2 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '150ms', animationDuration: '800ms' }} />
+                      <span className="w-2 h-2 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: '300ms', animationDuration: '800ms' }} />
                     </div>
-                    <span>{loadingStatus}</span>
+                    <span className="text-xs text-slate-300 font-medium">
+                      {loadingStatus || 'DZ Connect AI يكتب الآن...'}
+                    </span>
                   </div>
                 </div>
               )}

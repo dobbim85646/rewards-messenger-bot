@@ -22,6 +22,15 @@ function envBool(name: string, defaultValue: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(val.trim().toLowerCase());
 }
 
+function sanitizeModel(val?: string, defaultModel = 'gemini-3.1-flash-lite'): string {
+  if (!val) return defaultModel;
+  const trimmed = val.trim();
+  if (trimmed.includes('gemini-3.8') || trimmed.includes('gemini-2.')) {
+    return defaultModel;
+  }
+  return trimmed;
+}
+
 export const CONFIG = {
   // Server
   port: envInt('PORT', 3000),
@@ -36,11 +45,11 @@ export const CONFIG = {
 
   // Gemini API
   geminiApiKey: getCleanApiKey(),
-  fastModel: (process.env.GEMINI_FAST_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').trim(),
-  strongModel: (process.env.GEMINI_STRONG_MODEL || process.env.GEMINI_FAST_MODEL || 'gemini-3.1-flash-lite').trim(),
+  fastModel: sanitizeModel(process.env.GEMINI_FAST_MODEL || process.env.GEMINI_MODEL, 'gemini-3.1-flash-lite'),
+  strongModel: sanitizeModel(process.env.GEMINI_STRONG_MODEL, 'gemini-3.5-flash-lite'),
   fallbackModels: (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.5-flash-lite,gemini-flash-latest')
     .split(',')
-    .map(m => m.trim())
+    .map(m => sanitizeModel(m, ''))
     .filter(Boolean),
 
   thinkingLevel: (process.env.GEMINI_THINKING_LEVEL || 'low').toLowerCase(),

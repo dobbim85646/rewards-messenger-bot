@@ -112,10 +112,9 @@ export async function callGemini(
     'gemini-3.1-flash-lite',
     'gemini-3.5-flash-lite',
     'gemini-flash-latest',
-    'gemini-3.8-flash',
   ];
 
-  const deprecatedPatterns = ['gemini-2.', 'gemini-1.5', 'gemini-pro'];
+  const deprecatedPatterns = ['gemini-3.8', 'gemini-2.', 'gemini-1.5', 'gemini-pro'];
   const models: string[] = [];
   for (const m of candidateList) {
     if (m && !models.includes(m) && !deprecatedPatterns.some(p => m.includes(p))) {
@@ -209,6 +208,13 @@ export async function callGemini(
           thinkingConfig = undefined;
           attempt--;
           continue;
+        }
+
+        const errMsg = String(err?.message || err);
+        const isQuotaExhausted = errMsg.includes('resource_exhausted') || errMsg.includes('Quota exceeded');
+        if (isQuotaExhausted) {
+          console.warn(`[Gemini] Model ${model} quota exhausted, skipping to next model immediately...`);
+          break;
         }
 
         // Check if retryable code (429, 500, 502, 503, 504)

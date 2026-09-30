@@ -103,15 +103,25 @@ app.get('/api/check-facebook', async (_req: Request, res: Response) => {
 
   try {
     const token = CONFIG.pageAccessToken.trim();
-    const url = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me?fields=id,name,link&access_token=${encodeURIComponent(token)}`;
+    // Query basic Page info
+    const url = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me?fields=id,name&access_token=${encodeURIComponent(token)}`;
     const resp = await fetch(url);
     const data = await resp.json();
+
+    // Query permissions or debug token if available
+    let permissions = null;
+    try {
+      const permUrl = `https://graph.facebook.com/${CONFIG.graphApiVersion}/me/permissions?access_token=${encodeURIComponent(token)}`;
+      const pResp = await fetch(permUrl);
+      permissions = await pResp.json();
+    } catch {}
 
     res.json({
       configured: true,
       status: resp.status,
       ok: resp.ok,
       page: data,
+      permissions,
     });
   } catch (err: any) {
     res.status(500).json({ configured: true, error: err?.message || 'Check failed' });
