@@ -22,12 +22,22 @@ function envBool(name: string, defaultValue: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(val.trim().toLowerCase());
 }
 
-function sanitizeModel(val?: string, defaultModel = 'gemini-3.1-flash-lite'): string {
+export function resolveModelName(val?: string, defaultModel = 'gemini-3.1-flash-lite'): string {
   if (!val) return defaultModel;
   const trimmed = val.trim();
-  if (trimmed.includes('gemini-3.8') || trimmed.includes('gemini-2.')) {
-    return defaultModel;
+  const lower = trimmed.toLowerCase();
+
+  // Smart alias mapping for user-entered deprecated names
+  if (lower.includes('1.5-flash') || lower.includes('2.0-flash')) {
+    return 'gemini-3.1-flash-lite';
   }
+  if (lower.includes('1.5-pro') || lower.includes('2.0-pro') || lower === 'gemini-pro') {
+    return 'gemini-3.8-flash';
+  }
+  if (lower.includes('2.0')) {
+    return 'gemini-3.1-flash-lite';
+  }
+
   return trimmed;
 }
 
@@ -45,11 +55,12 @@ export const CONFIG = {
 
   // Gemini API
   geminiApiKey: getCleanApiKey(),
-  fastModel: sanitizeModel(process.env.GEMINI_FAST_MODEL || process.env.GEMINI_MODEL, 'gemini-3.1-flash-lite'),
-  strongModel: sanitizeModel(process.env.GEMINI_STRONG_MODEL, 'gemini-3.5-flash-lite'),
-  fallbackModels: (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.5-flash-lite,gemini-flash-latest')
+  fastModel: resolveModelName(process.env.GEMINI_FAST_MODEL || process.env.GEMINI_MODEL, 'gemini-3.1-flash-lite'),
+  strongModel: resolveModelName(process.env.GEMINI_STRONG_MODEL, 'gemini-3.8-flash'),
+  enableAutoFallback: envBool('ENABLE_AUTO_FALLBACK', true),
+  fallbackModels: (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.8-flash,gemini-3.5-flash-lite,gemini-flash-latest')
     .split(',')
-    .map(m => sanitizeModel(m, ''))
+    .map(m => resolveModelName(m, ''))
     .filter(Boolean),
 
   thinkingLevel: (process.env.GEMINI_THINKING_LEVEL || 'low').toLowerCase(),
@@ -100,3 +111,23 @@ export const CONFIG = {
 export const GRAPH_BASE = `https://graph.facebook.com/${CONFIG.graphApiVersion}`;
 export const MESSAGES_URL = `${GRAPH_BASE}/me/messages`;
 export const PROFILE_URL = `${GRAPH_BASE}/me/messenger_profile`;
+
+export function updateRuntimeConfig(updates: Partial<typeof CONFIG>) {
+  if (updates.fastModel) {
+    updates.fastModel = resolveModelName(updates.fastModel);
+  }
+  if (updates.strongModel) {
+    updates.strongModel = resolveModelName(updates.strongModel);
+  }
+  if (updates.fallbackModels && Array.isArray(updates.fallbackModels)) {
+    updates.fallbackModels = updates.fallbackModels.map(m => resolveModelName(m));
+  }
+  Object.assign(CONFIG, updates);
+  console.log('[CONFIG] Runtime config updated:', {
+    fastModel: CONFIG.fastModel,
+    strongModel: CONFIG.strongModel,
+    enableAutoFallback: CONFIG.enableAutoFallback,
+    fallbackModels: CONFIG.fallbackModels,
+  });
+  return CONFIG;
+}

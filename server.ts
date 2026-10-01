@@ -3,7 +3,7 @@ import cors from 'cors';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG, PROFILE_URL } from './src/bot/config.js';
+import { CONFIG, PROFILE_URL, updateRuntimeConfig } from './src/bot/config.js';
 import { store } from './src/bot/store.js';
 import {
   graphPost,
@@ -210,7 +210,50 @@ app.get('/health', (_req: Request, res: Response) => {
     daily_strong_limit: CONFIG.dailyStrongLimit,
     messenger_configured: messengerConfigured,
     signature_verification: signatureVerification,
+    enable_auto_fallback: CONFIG.enableAutoFallback,
+    fallback_models: CONFIG.fallbackModels,
   });
+});
+
+// =========================================================
+// Settings API (Model Switching & Failover)
+// =========================================================
+
+app.get('/api/settings', (_req: Request, res: Response) => {
+  res.json({
+    fastModel: CONFIG.fastModel,
+    strongModel: CONFIG.strongModel,
+    enableAutoFallback: CONFIG.enableAutoFallback,
+    fallbackModels: CONFIG.fallbackModels,
+    thinkingLevel: CONFIG.thinkingLevel,
+    searchMode: CONFIG.searchMode,
+    availableModels: [
+      { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite (الافتراضي - الأسرع)', desc: 'أخف نموذج وزمن استجابة فائق السرعة' },
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (النموذج الذكي الشامل)', desc: 'دقة عالية وتوازن ممتاز' },
+      { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', desc: 'أحدث نسخة من سلسلة Flash' },
+      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (الأقوى للمسائل المعقدة)', desc: 'تفكير متقدم واستدلال برمجي عالي' },
+    ],
+  });
+});
+
+app.post('/api/settings', (req: Request, res: Response) => {
+  try {
+    const updated = updateRuntimeConfig(req.body);
+    res.json({
+      success: true,
+      message: 'تم تحديث إعدادات النماذج والتبديل التلقائي بنجاح',
+      config: {
+        fastModel: updated.fastModel,
+        strongModel: updated.strongModel,
+        enableAutoFallback: updated.enableAutoFallback,
+        fallbackModels: updated.fallbackModels,
+        thinkingLevel: updated.thinkingLevel,
+        searchMode: updated.searchMode,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to update settings' });
+  }
 });
 
 // =========================================================

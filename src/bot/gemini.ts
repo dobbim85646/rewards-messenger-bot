@@ -108,13 +108,11 @@ export async function callGemini(
   const candidateList = [
     preferredModel,
     CONFIG.fastModel,
-    ...CONFIG.fallbackModels,
-    'gemini-3.1-flash-lite',
-    'gemini-3.5-flash-lite',
-    'gemini-flash-latest',
+    ...(CONFIG.enableAutoFallback ? CONFIG.fallbackModels : []),
+    ...(CONFIG.enableAutoFallback ? ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'] : []),
   ];
 
-  const deprecatedPatterns = ['gemini-3.8', 'gemini-2.', 'gemini-1.5', 'gemini-pro'];
+  const deprecatedPatterns = ['gemini-2.', 'gemini-1.5', 'gemini-pro'];
   const models: string[] = [];
   for (const m of candidateList) {
     if (m && !models.includes(m) && !deprecatedPatterns.some(p => m.includes(p))) {
@@ -122,7 +120,7 @@ export async function callGemini(
     }
   }
   if (models.length === 0) {
-    models.push('gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-flash-latest');
+    models.push('gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest');
   }
 
   let sawEmpty = false;
@@ -226,6 +224,11 @@ export async function callGemini(
         }
         break;
       }
+    }
+
+    if (!CONFIG.enableAutoFallback) {
+      console.warn(`[Gemini] Model ${model} failed, auto-fallback is disabled.`);
+      break;
     }
 
     if (modelIndex + 1 < models.length) {

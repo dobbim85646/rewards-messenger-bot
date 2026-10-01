@@ -18,6 +18,9 @@ import {
   Settings,
   Terminal,
   ExternalLink,
+  Sliders,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface ChatMessage {
@@ -117,7 +120,7 @@ function TypewriterText({
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'webhook' | 'stats' | 'setup'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'models' | 'webhook' | 'stats' | 'setup'>('chat');
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -133,6 +136,20 @@ export default function App() {
   const [stats, setStats] = useState<any>(null);
   const [selectedImage, setSelectedImage] = useState<{ b64: string; mime: string } | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  // Model & Fallback Settings State
+  const [fastModel, setFastModel] = useState('gemini-3.1-flash-lite');
+  const [strongModel, setStrongModel] = useState('gemini-3.8-flash');
+  const [customModel, setCustomModel] = useState('');
+  const [enableAutoFallback, setEnableAutoFallback] = useState(true);
+  const [fallbackChain, setFallbackChain] = useState<string[]>([
+    'gemini-3.8-flash',
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+  ]);
+  const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Webhook Test State
   const [webhookVerifyToken, setWebhookVerifyToken] = useState('my_verify_token');
@@ -171,11 +188,64 @@ export default function App() {
   useEffect(() => {
     fetchHealth();
     fetchStats();
+    fetchSettings();
   }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
+
+  const copyToClipboard = (text: string, keyName: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(keyName);
+    setTimeout(() => setCopiedKey(null), 2500);
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        setFastModel(data.fastModel || 'gemini-3.1-flash-lite');
+        setStrongModel(data.strongModel || 'gemini-3.8-flash');
+        setEnableAutoFallback(data.enableAutoFallback !== false);
+        if (data.fallbackModels && Array.isArray(data.fallbackModels)) {
+          setFallbackChain(data.fallbackModels);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    setIsSavingSettings(true);
+    setSettingsStatus(null);
+    try {
+      const modelToUse = customModel.trim() ? customModel.trim() : fastModel;
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fastModel: modelToUse,
+          strongModel,
+          enableAutoFallback,
+          fallbackModels: fallbackChain,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettingsStatus(`تم بنجاح تفعيل النموذج (${data.config?.fastModel || modelToUse}) مع ميزة التبديل التلقائي للطوارئ! ✅`);
+        fetchHealth();
+      } else {
+        setSettingsStatus('فشل الحفظ: ' + (data.error || 'خطأ غير معروف'));
+      }
+    } catch (e: any) {
+      setSettingsStatus('تعذر الاتصال بالسيرفر: ' + e?.message);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
 
   const fetchHealth = async () => {
     try {
@@ -385,6 +455,20 @@ export default function App() {
             >
               <MessageSquare className="w-3.5 h-3.5" />
               المحاكي
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('models');
+                fetchSettings();
+              }}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                activeTab === 'models'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              نماذج Gemini
             </button>
             <button
               onClick={() => setActiveTab('webhook')}
@@ -865,55 +949,282 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 4: Setup Guide */}
-        {activeTab === 'setup' && (
+        {/* TAB: Gemini Models & Auto-Failover Settings */}
+        {activeTab === 'models' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-              <h2 className="text-base font-semibold text-white mb-3 flex items-center gap-2">
-                <Settings className="w-5 h-5 text-blue-400" />
-                دليل ربط بوت Messenger مع صفحة فيسبوك
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800">
+                <div>
+                  <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                    <Sliders className="w-5 h-5 text-blue-400" />
+                    إعدادات نماذج Gemini والتبديل التلقائي للطوارئ
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    اختر النموذج النشط لتوليد الردود، وفعّل التبديل التلقائي في حال التحميل الزائد أو تجاوز الحصة.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${health?.gemini_configured ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'}`}>
+                    {health?.gemini_configured ? 'Gemini API متصل ✅' : 'مفتاح API غير متوفر ⚠️'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Primary Model Selection */}
+              <div className="space-y-4 mb-6">
+                <label className="block text-xs font-semibold text-slate-200">
+                  1. النموذج الأساسي للردود (Primary Model):
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    {
+                      id: 'gemini-3.1-flash-lite',
+                      name: 'Gemini 3.1 Flash Lite',
+                      badge: 'فائق السرعة (موصى به)',
+                      badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+                      desc: 'زمن استجابة أقل من ثانية ونصف، مثالي لمحادثات مسنجر السريعة والدارجة الجزائرية.',
+                    },
+                    {
+                      id: 'gemini-3.8-flash',
+                      name: 'Gemini 3.8 Flash',
+                      badge: 'النموذج الذكي الشامل',
+                      badgeColor: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
+                      desc: 'ذكاء متقدم، دقة لغوية عالية، وإجابات عميقة ومتوازنة.',
+                    },
+                    {
+                      id: 'gemini-flash-latest',
+                      name: 'Gemini Flash Latest',
+                      badge: 'أحدث إصدار Flash',
+                      badgeColor: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+                      desc: 'يواكب آخر تحديثات وتعديلات Google Flash تلقائياً.',
+                    },
+                    {
+                      id: 'gemini-3.1-pro-preview',
+                      name: 'Gemini 3.1 Pro',
+                      badge: 'الأقوى للمسائل والبرمجة',
+                      badgeColor: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+                      desc: 'تفكير استدلالي عميق لحل المسائل العلمية والرياضيات وكتابة الأكواد.',
+                    },
+                  ].map(item => (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        setFastModel(item.id);
+                        setCustomModel('');
+                      }}
+                      className={`cursor-pointer p-4 rounded-xl border transition-all ${
+                        fastModel === item.id && !customModel
+                          ? 'bg-blue-600/10 border-blue-500 ring-1 ring-blue-500/50 shadow-md'
+                          : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-semibold text-sm text-white">{item.name}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${item.badgeColor}`}>
+                          {item.badge}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">{item.desc}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Custom Model Input */}
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl mt-3">
+                  <label className="block text-xs text-slate-400 mb-1">
+                    أو أدخل اسم نموذج مخصص (Custom Model Name):
+                  </label>
+                  <input
+                    type="text"
+                    value={customModel}
+                    onChange={e => setCustomModel(e.target.value)}
+                    placeholder="مثلاً: gemini-3.8-flash أو gemini-3.1-pro-preview"
+                    className="w-full bg-slate-900 border border-slate-700 text-xs text-slate-200 p-2.5 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    💡 ملاحظة: إذا قمت بكتابة أسماء قديمة مثل 1.5 Pro أو 2.0 Flash، سيقوم البوت بربطها تلقائياً بالنظير الحديث لضمان استقرار الخدمة دون توقف.
+                  </p>
+                </div>
+              </div>
+
+              {/* Auto Failover Switch */}
+              <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl mb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                      <Zap className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                        التبديل التلقائي عند الضغط (Auto-Failover / Model Fallback)
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${enableAutoFallback ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                          {enableAutoFallback ? 'مفعل (نشط)' : 'معطل'}
+                        </span>
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        في حال واجه النموذج خطأ 429 (تجاوز الحصة) أو 503 (الضغط الزائد على خوادم جوجل) أو بطء، يتحول البوت فوراً للنموذج البديل دون انقطاع.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setEnableAutoFallback(!enableAutoFallback)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      enableAutoFallback ? 'bg-blue-600' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        enableAutoFallback ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {enableAutoFallback && (
+                  <div className="mt-4 pt-4 border-t border-slate-800/80">
+                    <span className="text-xs text-slate-300 font-medium block mb-2">
+                      سلسلة نماذج الطوارئ الاحتياطية (Emergency Fallback Chain):
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                      <span className="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-lg border border-blue-500/30 font-bold">
+                        1. {customModel || fastModel}
+                      </span>
+                      <span className="text-slate-500">➔</span>
+                      <span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-lg border border-slate-700">
+                        2. gemini-3.8-flash
+                      </span>
+                      <span className="text-slate-500">➔</span>
+                      <span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-lg border border-slate-700">
+                        3. gemini-flash-latest
+                      </span>
+                      <span className="text-slate-500">➔</span>
+                      <span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-lg border border-slate-700">
+                        4. gemini-3.1-flash-lite
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Save Settings Button */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                {settingsStatus ? (
+                  <p className="text-xs text-emerald-400 font-medium">{settingsStatus}</p>
+                ) : (
+                  <p className="text-xs text-slate-500">يتم تطبيق الإعدادات حياً ومباشرة على السيرفر دون الحاجة لإعادة التشغيل.</p>
+                )}
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={isSavingSettings}
+                  className="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium px-6 py-2.5 rounded-xl text-sm transition shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingSettings ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      جاري الحفظ...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      حفظ الإعدادات وتطبيقها فوراً
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: Setup Guide & Environment Variables */}
+        {activeTab === 'setup' && (
+          <div className="space-y-6">
+            {/* Meta Subscriptions Match Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+              <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-800">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                  <CheckCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-white">
+                    مطابقة اشتراكات Webhooks لصفحة DZ Connect AI (1312138588655271)
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    الخصائص الـ 6 المحددة في لوحة Meta Developers متوافقة 100% ومضبوطة داخل كود البوت:
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {[
+                  { name: 'messages', label: 'الرسائل الواردة', desc: 'استلام ومعالجة النصوص والصور والرسائل الصوتية بذكاء عبر Gemini.' },
+                  { name: 'messaging_postbacks', label: 'الأزرار والقائمة الثابتة', desc: 'التعامل مع زر البدء، وأزرار أسعار السكوار، ومساعد الباك، وتوليد الصور.' },
+                  { name: 'message_echoes', label: 'صدى الرسائل (Echoes)', desc: 'يتم تجاهلها بأمان تام لمنع البوت من الرد على رسائله الخاصة أو الدخول في حلقة تكرار.' },
+                  { name: 'message_reactions', label: 'تفاعلات الإيموجي', desc: 'استلام وتسجيل تفاعلات المستخدم مع الرسائل وتأكيد استلامها فوراً للمنصة.' },
+                  { name: 'message_deliveries', label: 'تأكيد التسليم (Deliveries)', desc: 'تأكيد تسليم الرسائل للمستخدم مع إرجاع 200 OK فوراً لتجنب إعادة المحاولة.' },
+                  { name: 'message_reads', label: 'تأكيد القراءة (Reads)', desc: 'تأكيد قراءة الرسائل وتحديث حالة المحادثة بسلاسة.' },
+                ].map((item, idx) => (
+                  <div key={idx} className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-mono text-xs text-sky-400 font-bold">{item.name}</span>
+                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                        مفعل ومدعوم ✅
+                      </span>
+                    </div>
+                    <span className="text-xs text-slate-300 font-medium block">{item.label}</span>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Server Environment Variables Table */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+              <h2 className="text-base font-semibold text-white mb-2 flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-emerald-400" />
+                متغيرات البيئة لخادم Render (Environment Variables)
               </h2>
-              <div className="space-y-4 text-xs text-slate-300 leading-relaxed">
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
-                  <h4 className="font-bold text-sky-400 mb-1">الخطوة 1: رابط الويب هوك (Webhook URL)</h4>
-                  <p className="mb-2">
-                    في لوحة Meta for Developers &gt; Messenger &gt; Settings &gt; Webhooks، عيّن الرابط التالي:
-                  </p>
-                  <code className="block bg-slate-900 p-2 rounded text-emerald-400 font-mono select-all">
-                    https://ais-dev-un6ddujaxtvnot676owfty-159153712611.us-east1.run.app/webhook
-                  </code>
-                </div>
+              <p className="text-xs text-slate-400 mb-4">
+                تأكد من إدخال هذه المتغيرات في لوحة التحكم في <strong>Render &gt; Environment</strong> ليعمل البوت بكامل طاقته:
+              </p>
 
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
-                  <h4 className="font-bold text-sky-400 mb-1">الخطوة 2: رمز التحقق (Verify Token)</h4>
-                  <p className="mb-2">
-                    أدخل نفس الرمز المحدد في المتغير <code className="text-amber-300">VERIFY_TOKEN</code> (مثل:{' '}
-                    <code className="text-amber-300">my_verify_token</code>).
-                  </p>
-                </div>
-
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
-                  <h4 className="font-bold text-sky-400 mb-1">الخطوة 3: حقول الاشتراك (Webhook Subscriptions)</h4>
-                  <p>
-                    اشترك في الحقول التالية: <code className="text-blue-300">messages</code> و{' '}
-                    <code className="text-blue-300">messaging_postbacks</code>.
-                  </p>
-                </div>
-
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
-                  <h4 className="font-bold text-sky-400 mb-1">الخطوة 4: متغيرات البيئة الأساسية</h4>
-                  <ul className="list-disc list-inside space-y-1 font-mono text-slate-400">
-                    <li>
-                      <span className="text-amber-400">PAGE_ACCESS_TOKEN</span>: توكن صفحة فيسبوك لإرسال الردود.
-                    </li>
-                    <li>
-                      <span className="text-amber-400">APP_SECRET</span>: سر التطبيق للتحقق من توقيع X-Hub-Signature-256.
-                    </li>
-                    <li>
-                      <span className="text-amber-400">GEMINI_API_KEY</span>: مفتاح Google Gemini للذكاء الاصطناعي.
-                    </li>
-                  </ul>
-                </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
+                    <tr>
+                      <th className="p-3">اسم المتغير (Key)</th>
+                      <th className="p-3">القيمة المقترحة (Value)</th>
+                      <th className="p-3">الوصف والدور</th>
+                      <th className="p-3 text-center">نسخ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 font-mono">
+                    {[
+                      { key: 'GEMINI_API_KEY', val: 'مفتاحك من Google AI Studio', desc: 'مفتاح الوصول لنماذج Gemini وتوليد الصور Imagen 3' },
+                      { key: 'PAGE_ACCESS_TOKEN', val: 'رمز الوصول المستخرج للصفحة من Meta', desc: 'توكن الصفحة لإرسال الرسائل والصور عبر Graph API' },
+                      { key: 'VERIFY_TOKEN', val: 'my_verify_token', desc: 'رمز التحقق السري لربط Webhook في لوحة Meta' },
+                      { key: 'APP_SECRET', val: 'سر التطبيق من App Basic Settings', desc: 'للتحقق من توقيع X-Hub-Signature-256 وأمان الطلبات' },
+                      { key: 'RENDER_EXTERNAL_URL', val: 'https://rewards-messenger-bot-lgl7.onrender.com', desc: 'عنوان السيرفر الكامل لخدمة الصور المولدة' },
+                      { key: 'GEMINI_FAST_MODEL', val: 'gemini-3.1-flash-lite', desc: 'النموذج الافتراضي فائق السرعة' },
+                      { key: 'GEMINI_STRONG_MODEL', val: 'gemini-3.8-flash', desc: 'النموذج الذكي للمسائل المعقدة والاستدلال' },
+                      { key: 'ENABLE_AUTO_FALLBACK', val: 'true', desc: 'تفعيل التبديل التلقائي للطوارئ عند التحميل الزائد' },
+                    ].map((row, i) => (
+                      <tr key={i} className="hover:bg-slate-800/40">
+                        <td className="p-3 font-bold text-amber-400">{row.key}</td>
+                        <td className="p-3 text-slate-300 select-all">{row.val}</td>
+                        <td className="p-3 text-slate-400 font-sans">{row.desc}</td>
+                        <td className="p-3 text-center font-sans">
+                          <button
+                            onClick={() => copyToClipboard(row.key, row.key)}
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                            title="نسخ اسم المتغير"
+                          >
+                            {copiedKey === row.key ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
