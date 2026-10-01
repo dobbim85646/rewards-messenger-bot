@@ -518,16 +518,85 @@ export async function processUserMessage(
   };
 }
 
-// User Message Aggregation Queue (Debounce consecutive messages from the same user)
-interface PendingBatch {
-  texts: string[];
-  mediaParts: ContentPart[];
-  mediaKind?: 'image' | 'audio';
-  timer: NodeJS.Timeout;
+// =========================================================
+// Per-User Execution Lock & Anti-Flood Queue Engine
+// =========================================================
+
+interface UserQueueState {
+  isProcessing: boolean;
+  debounceTimer: NodeJS.Timeout | null;
+  maxCeilingTimer: NodeJS.Timeout | null;
+  pendingTexts: string[];
+  pendingMediaParts: ContentPart[];
+  pendingMediaKind?: 'image' | 'audio';
+  burstCount: number;
+  burstResetTimer: NodeJS.Timeout | null;
+  floodWarned: boolean;
 }
 
-const userMessageBatches = new Map<string, PendingBatch>();
-const BATCH_WAIT_MS = 1800; // 1.8s wait window for consecutive messages
+const userQueues = new Map<string, UserQueueState>();
+
+const DEBOUNCE_WAIT_MS = 2200; // Wait 2.2s of silence to let user finish rapid typing
+const MAX_AGGREGATION_WAIT_MS = 4500; // Max 4.5s ceiling before forcing processing
+const BURST_LIMIT_COUNT = 5; // Max 5 messages in 5s burst before flood protection kicks in
+
+async function drainQueue(senderId: string): Promise<void> {
+  const state = userQueues.get(senderId);
+  if (!state) return;
+
+  // Clear timers
+  if (state.debounceTimer) {
+    clearTimeout(state.debounceTimer);
+    state.debounceTimer = null;
+  }
+  if (state.maxCeilingTimer) {
+    clearTimeout(state.maxCeilingTimer);
+    state.maxCeilingTimer = null;
+  }
+
+  // If already processing or nothing in queue, do not re-enter
+  if (state.isProcessing) return;
+  if (state.pendingTexts.length === 0 && state.pendingMediaParts.length === 0) return;
+
+  // ACQUIRE LOCK for this user
+  state.isProcessing = true;
+
+  const textsToProcess = [...state.pendingTexts];
+  const mediaToProcess = [...state.pendingMediaParts];
+  const mediaKindToProcess = state.pendingMediaKind;
+
+  state.pendingTexts = [];
+  state.pendingMediaParts = [];
+  state.pendingMediaKind = undefined;
+
+  const combinedText = textsToProcess.filter(Boolean).join('\n');
+
+  console.log(`[Queue Lock] Processing single atomic turn for ${senderId} (${textsToProcess.length} aggregated msgs)`);
+
+  try {
+    sendAction(senderId, 'typing_on').catch(() => {});
+    await processUserMessage(senderId, combinedText, mediaToProcess, mediaKindToProcess);
+  } catch (err) {
+    console.error(`[Queue Lock] Error processing user turn for ${senderId}:`, err);
+  } finally {
+    // RELEASE LOCK
+    state.isProcessing = false;
+
+    // If new messages arrived while Gemini was processing, drain sequentially!
+    if (state.pendingTexts.length > 0 || state.pendingMediaParts.length > 0) {
+      console.log(`[Queue Lock] New messages queued for ${senderId} while previous was running, draining sequentially...`);
+      setTimeout(() => drainQueue(senderId), 600);
+    } else {
+      // Clean up idle state after 10 minutes of inactivity
+      setTimeout(() => {
+        const s = userQueues.get(senderId);
+        if (s && !s.isProcessing && s.pendingTexts.length === 0) {
+          userQueues.delete(senderId);
+        }
+      }, 600000);
+    }
+  }
+}
 
 export async function enqueueBatchedMessage(
   senderId: string,
@@ -535,39 +604,76 @@ export async function enqueueBatchedMessage(
   mediaParts: ContentPart[] = [],
   mediaKind?: 'image' | 'audio'
 ): Promise<void> {
-  // Show typing action right away so user sees the bot is active
+  let state = userQueues.get(senderId);
+  if (!state) {
+    state = {
+      isProcessing: false,
+      debounceTimer: null,
+      maxCeilingTimer: null,
+      pendingTexts: [],
+      pendingMediaParts: [],
+      burstCount: 0,
+      burstResetTimer: null,
+      floodWarned: false,
+    };
+    userQueues.set(senderId, state);
+  }
+
+  // 1. Anti-Flood & Spam Burst Limiter
+  state.burstCount++;
+  if (!state.burstResetTimer) {
+    state.burstResetTimer = setTimeout(() => {
+      const s = userQueues.get(senderId);
+      if (s) {
+        s.burstCount = 0;
+        s.floodWarned = false;
+        s.burstResetTimer = null;
+      }
+    }, 5000); // 5-second burst window
+  }
+
+  if (state.burstCount > BURST_LIMIT_COUNT) {
+    console.warn(`[Anti-Flood] Burst limit exceeded for user ${senderId} (count=${state.burstCount})`);
+    if (!state.floodWarned) {
+      state.floodWarned = true;
+      sendMessage(
+        senderId,
+        '⚠️ راك تبعث رسائل كثيرة ورا بعض بسرعة! راني نجاوبك، من فضلك استنى شوية حتى نكمل الرد باش ما يتبلوکاش الحساب.'
+      ).catch(() => {});
+    }
+    // Drop excess flood messages to protect server and Gemini quota
+    return;
+  }
+
+  // 2. Accumulate incoming content
+  if (text) state.pendingTexts.push(text.trim());
+  if (mediaParts.length > 0) state.pendingMediaParts.push(...mediaParts);
+  if (mediaKind) state.pendingMediaKind = mediaKind;
+
+  // 3. Immediately show typing indicator on Messenger
   sendAction(senderId, 'typing_on').catch(() => {});
 
-  const existing = userMessageBatches.get(senderId);
-  if (existing) {
-    clearTimeout(existing.timer);
-    if (text) existing.texts.push(text);
-    if (mediaParts.length > 0) existing.mediaParts.push(...mediaParts);
-    if (mediaKind) existing.mediaKind = mediaKind;
+  // 4. If currently processing an active Gemini turn, DO NOT start duplicate timers!
+  // The message is queued and will automatically be processed once the current turn completes.
+  if (state.isProcessing) {
+    console.log(`[Queue Lock] User ${senderId} is currently busy processing; message appended to pending queue.`);
+    return;
+  }
 
-    console.log(`[Batch] Aggregated message for user ${senderId} (total count: ${existing.texts.length})`);
+  // 5. Debounce timer (resets every time user sends another rapid message)
+  if (state.debounceTimer) {
+    clearTimeout(state.debounceTimer);
+  }
 
-    existing.timer = setTimeout(() => {
-      userMessageBatches.delete(senderId);
-      const combinedText = existing.texts.filter(Boolean).join('\n');
-      processUserMessage(senderId, combinedText, existing.mediaParts, existing.mediaKind).catch(err => {
-        console.error(`[Batch] Error processing aggregated message for ${senderId}:`, err);
-      });
-    }, BATCH_WAIT_MS);
-  } else {
-    const batch: PendingBatch = {
-      texts: text ? [text] : [],
-      mediaParts: [...mediaParts],
-      mediaKind,
-      timer: setTimeout(() => {
-        userMessageBatches.delete(senderId);
-        const combinedText = batch.texts.filter(Boolean).join('\n');
-        processUserMessage(senderId, combinedText, batch.mediaParts, batch.mediaKind).catch(err => {
-          console.error(`[Batch] Error processing aggregated message for ${senderId}:`, err);
-        });
-      }, BATCH_WAIT_MS),
-    };
-    userMessageBatches.set(senderId, batch);
+  state.debounceTimer = setTimeout(() => {
+    drainQueue(senderId);
+  }, DEBOUNCE_WAIT_MS);
+
+  // 6. Max ceiling timer (hard limit to never wait more than 4.5s even if user types non-stop)
+  if (!state.maxCeilingTimer) {
+    state.maxCeilingTimer = setTimeout(() => {
+      drainQueue(senderId);
+    }, MAX_AGGREGATION_WAIT_MS);
   }
 }
 
